@@ -32,7 +32,13 @@
 ## 如何使用
 
 1. 克隆项目到本地
-2. 直接打开 `index.html` 文件即可运行
+2. 直接打开 `index.html` 文件即可运行（建议通过本地静态服务如 `python -m http.server` 打开，确保 ES Module 正常加载）
 3. 无需安装任何依赖，所有资源通过CDN加载
 
 ## 项目结构
+
+- `index.html`：页面骨架、Tailwind 配置与组件布局
+- `assets/js/main.js`：核心交互逻辑（对话、上传、面板、知识树等），以 ES Module 方式组织
+- `assets/js/data/knowledgeCategories.js`：知识体系种子数据
+- `assets/js/data/faqData.js`：FAQ 种子数据
+- `文档生命周期管理-PRD.md` 等：需求、场景与运维文档
