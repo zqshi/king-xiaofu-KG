@@ -43,6 +43,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const exceptionDetailPriority = document.getElementById('exception-detail-priority');
     const exceptionDetailTime = document.getElementById('exception-detail-time');
     const exceptionBackBtn = document.getElementById('exception-back-btn');
+    const exceptionDetailNoteInput = document.getElementById('exception-detail-note');
+    const exceptionDetailNoteContainer = document.getElementById('exception-detail-note-container');
+    const exceptionDetailConfirmBtn = document.getElementById('exception-detail-confirm');
 
     // 验证关键DOM元素
     console.log('🔍 关键元素检查:');
@@ -59,6 +62,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const exceptionOverlay = document.getElementById('exception-overlay');
     const exceptionClose = document.getElementById('exception-close');
     let previewCollapsed = false;
+    let currentExceptionDetailId = null;
+    let currentExceptionDetailType = null;
+    const conflictExampleData = {
+        similarDoc: {
+            title: '2024年产假政策',
+            created_at: '2024-11-28 10:00:00'
+        },
+        similarity: 92,
+        differences: ['新增体检医院信息', '更新银行卡要求']
+    };
 
     // ========== 辅助函数 ==========
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -622,6 +635,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const addUploadProcessGuide = (fileName = '文档') => {
+        const displayName = fileName ? `《${fileName}》` : '文档';
+        addSystemMessageWithActions(
+            `${displayName}已通过对话上传，系统会立即启动 L0→L3 + QA 加工并尝试自动发布。若检测到重复/相似/分类异常，会在对话中立刻提醒并展示【处理】按钮，点击即可在右侧打开处理面板查看详情。`,
+            [
+                { label: '发布文档', icon: 'paper-plane', action: 'publish_document', data: { fileName } },
+                { label: '打开处理面板', icon: 'cog', action: 'open_exception_panel' }
+            ]
+        );
+    };
+
     const sendMessage = () => {
         console.log('📤 sendMessage 函数被调用');
         const text = messageInput.value.trim();
@@ -793,11 +817,7 @@ document.addEventListener('DOMContentLoaded', () => {
 主要差异：
 • 新增体检医院信息
 • 更新银行卡要求`, [
-                { label: '处理', icon: 'cog', action: 'open_conflict_panel', data: {
-                    similarDoc: { title: '2024年产假政策', created_at: '2024-11-28 10:00:00' },
-                    similarity: 92,
-                    differences: ['新增体检医院信息', '更新银行卡要求']
-                }}
+                { label: '处理', icon: 'cog', action: 'open_conflict_panel', data: conflictExampleData }
             ]);
             return;
         }
@@ -860,6 +880,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     autoApproved: []
                 }}
             ]);
+            addUploadProcessGuide(file.name);
         } else {
             // 全部自动入库
             await sleep(500);
@@ -869,7 +890,8 @@ document.addEventListener('DOMContentLoaded', () => {
 • 自动分类：员工福利/假期管理
 • 提取标签：产假、陪产假、生育津贴
 • 挖掘FAQ：${totalFaqs} 条（已自动入库）`);
-        }
+        addUploadProcessGuide(file.name);
+    }
     }
 
     uploadBtn.addEventListener('click', () => fileInput.click());
@@ -899,6 +921,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     messageInput.addEventListener('input', updateActionButtons);
+
+    const conflictDetailButtons = document.querySelectorAll('[data-action="open-conflict-detail"]');
+    conflictDetailButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            openDetailPanel('conflict', conflictExampleData);
+        });
+    });
 
     const commandCards = document.querySelectorAll('.command-card');
     console.log('🔧 找到快捷指令数量:', commandCards.length);
@@ -1062,6 +1091,12 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'open_exception_panel':
                 openExceptionPanel();
                 break;
+            case 'publish_document':
+                {
+                    const docName = data?.fileName ? `《${data.fileName}》` : '当前文档';
+                    addSystemMessage(`${docName} 已发布到知识库，摘要、标签与FAQ结果已同步。`);
+                }
+                break;
             case 'keep_existing':
                 addSystemMessage('好的，保持原有文件名。');
                 break;
@@ -1127,11 +1162,56 @@ document.addEventListener('DOMContentLoaded', () => {
             exceptionDetailContent.innerHTML = detailHtml || '<p class="text-sm text-text-secondary">暂无详细信息</p>';
         }
 
+        currentExceptionDetailId = meta.id;
+        currentExceptionDetailType = meta.type;
+        if (exceptionDetailNoteInput) {
+            exceptionDetailNoteInput.value = '';
+        }
+
+        const showNoteInput = meta.type !== 'conflict';
+        if (exceptionDetailNoteContainer) {
+            exceptionDetailNoteContainer.style.display = showNoteInput ? '' : 'none';
+        }
+
         if (exceptionListView) exceptionListView.classList.add('hidden');
         if (exceptionDetailView) exceptionDetailView.classList.remove('hidden');
         if (exceptionPanelBody) {
             exceptionPanelBody.scrollTo({ top: 0, behavior: 'smooth' });
         }
+    }
+
+    function handleExceptionDetailCompletion() {
+        if (!currentExceptionDetailId) return;
+        const note = exceptionDetailNoteInput?.value.trim();
+        const titleText = exceptionDetailTitle?.textContent?.trim() || '异常条目';
+        const faqAnswerTextarea = document.getElementById('faq-answer-edit');
+        const faqAnswerRaw = currentExceptionDetailType === 'faq' ? faqAnswerTextarea?.value.trim() : '';
+        const truncatedFaqAnswer = faqAnswerRaw
+            ? (faqAnswerRaw.length > 80 ? `${faqAnswerRaw.slice(0, 80)}...` : faqAnswerRaw)
+            : '';
+        const checkbox = document.querySelector(`.exception-checkbox[data-exception-id="${currentExceptionDetailId}"]`);
+        const row = checkbox ? checkbox.closest('tr') : null;
+
+        if (row) {
+            row.style.transition = 'opacity 0.3s, height 0.3s';
+            row.style.opacity = '0';
+            row.style.height = '0';
+            setTimeout(() => row.remove(), 200);
+        }
+
+        const detailNoteText = note ? `，备注：${note}` : '';
+        const detailAnswerText = truncatedFaqAnswer ? `，答案已更新为：“${truncatedFaqAnswer}”` : '';
+        addSystemMessage(`异常“${titleText}”已处理完毕${detailNoteText}${detailAnswerText}`);
+
+        batchSelectionState.remove(String(currentExceptionDetailId));
+        updateExceptionSelection();
+
+        currentExceptionDetailId = null;
+        currentExceptionDetailType = null;
+
+        if (exceptionDetailNoteInput) exceptionDetailNoteInput.value = '';
+
+        showExceptionListView();
     }
 
     function getExceptionTypeLabel(type) {
@@ -1187,6 +1267,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (exceptionBackBtn) {
         exceptionBackBtn.addEventListener('click', showExceptionListView);
     }
+    if (exceptionDetailConfirmBtn) {
+        exceptionDetailConfirmBtn.addEventListener('click', handleExceptionDetailCompletion);
+    }
 
     // ========== 新功能：面板详情生成 ==========
     function generateConflictDetail(data) {
@@ -1237,32 +1320,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 ` : ''}
 
-                <div class="bg-white rounded-lg border border-border-light p-4">
-                    <h3 class="text-sm font-semibold text-text-primary mb-3">处理选项</h3>
-                    <div class="space-y-2">
-                        <button onclick="handleReplaceDocument()" class="w-full flex items-center justify-between px-4 py-3 bg-primary text-white rounded-lg hover:bg-secondary transition-all">
-                            <div class="flex items-center">
-                                <i class="fa fa-refresh mr-3"></i>
-                                <span>覆盖为新版本</span>
-                            </div>
-                            <i class="fa fa-chevron-right"></i>
-                        </button>
-                        <button onclick="handleKeepBoth()" class="w-full flex items-center justify-between px-4 py-3 bg-white text-text-primary border border-border-light rounded-lg hover:bg-gray-50 transition-all">
-                            <div class="flex items-center">
-                                <i class="fa fa-copy mr-3"></i>
-                                <span>保留两个版本</span>
-                            </div>
-                            <i class="fa fa-chevron-right"></i>
-                        </button>
-                        <button onclick="handleIgnore()" class="w-full flex items-center justify-between px-4 py-3 bg-white text-text-secondary border border-border-light rounded-lg hover:bg-gray-50 transition-all">
-                            <div class="flex items-center">
-                                <i class="fa fa-ban mr-3"></i>
-                                <span>忽略</span>
-                            </div>
-                            <i class="fa fa-chevron-right"></i>
-                        </button>
+        <div class="bg-white rounded-lg border border-border-light p-4">
+            <h3 class="text-sm font-semibold text-text-primary mb-3">处理选项</h3>
+            <div class="space-y-2">
+                <button onclick="handleReplaceDocument()" class="w-full flex items-center justify-between px-4 py-3 bg-primary text-white rounded-lg hover:bg-secondary transition-all">
+                    <div class="flex items-center">
+                        <i class="fa fa-refresh mr-3"></i>
+                        <span>覆盖为新版本</span>
                     </div>
-                </div>
+                    <i class="fa fa-chevron-right"></i>
+                </button>
+                <button onclick="handleKeepBoth()" class="w-full flex items-center justify-between px-4 py-3 bg-white text-text-primary border border-border-light rounded-lg hover:bg-gray-50 transition-all">
+                    <div class="flex items-center">
+                        <i class="fa fa-copy mr-3"></i>
+                        <span>保留两个版本</span>
+                    </div>
+                    <i class="fa fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
             </div>
         `;
     }
@@ -1312,14 +1388,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 ` : ''}
 
-                <div class="flex space-x-2">
-                    <button onclick="handleSaveCategory()" class="flex-1 btn-primary">
-                        <i class="fa fa-check mr-2"></i>保存分类
-                    </button>
-                    <button onclick="closeDetailPanel()" class="flex-1 btn-secondary">
-                        稍后处理
-                    </button>
-                </div>
             </div>
         `;
     }
@@ -1346,10 +1414,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
 
                 <div class="bg-white rounded-lg border border-border-light p-4">
-                    <h3 class="text-sm font-semibold text-text-primary mb-3">答案</h3>
-                    <div class="bg-gray-50 p-3 rounded text-sm text-text-primary">
-                        ${currentFaq.answer || '根据最新政策，产假为158天，包括基本产假98天和延长产假60天。'}
-                    </div>
+                    <h3 class="text-sm font-semibold text-text-primary mb-3">答案（支持手动编辑）</h3>
+                    <textarea id="faq-answer-edit" rows="5" class="w-full px-3 py-2 border border-border-light rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"
+                        placeholder="手动补充或纠正答案">${currentFaq.answer || '根据最新政策，产假为158天，包括基本产假98天和延长产假60天。'}</textarea>
+                    <p class="text-xs text-text-secondary mt-2">直接在此处调整答案内容，提交后将同步记录。</p>
                 </div>
 
                 ${currentFaq.similar_qa ? `
@@ -1374,14 +1442,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 ` : ''}
 
-                <div class="flex space-x-2">
-                    <button onclick="handleApproveFaq()" class="flex-1 btn-primary">
-                        <i class="fa fa-check mr-2"></i>批准发布
-                    </button>
-                    <button onclick="handleRejectFaq()" class="flex-1 btn-secondary">
-                        <i class="fa fa-times mr-2"></i>驳回
-                    </button>
-                </div>
 
                 ${needReview.length > 1 ? `
                     <div class="text-center text-sm text-text-secondary">
