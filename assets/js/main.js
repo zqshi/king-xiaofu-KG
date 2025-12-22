@@ -75,6 +75,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentExceptionDetailType = null;
     let currentConflictData = null;
     let currentExceptionAction = null;
+    const faqReviewState = {
+        items: [],
+        currentId: null,
+        decisions: new Map(),
+        editedAnswers: new Map(),
+        autoApprovedCount: 0
+    };
     const conflictExampleData = {
         similarDoc: {
             title: '2024年产假政策',
@@ -1266,6 +1273,12 @@ document.addEventListener('DOMContentLoaded', () => {
         currentExceptionDetailId = meta.id;
         currentExceptionDetailType = meta.type;
         currentExceptionAction = meta.type === 'conflict' ? '覆盖为新版本' : null;
+        if (meta.type !== 'faq') {
+            faqReviewState.items = [];
+            faqReviewState.currentId = null;
+            faqReviewState.decisions.clear();
+            faqReviewState.editedAnswers.clear();
+        }
         if (exceptionDetailNoteInput) {
             exceptionDetailNoteInput.value = '';
         }
@@ -1314,6 +1327,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const titleText = exceptionDetailTitle?.textContent?.trim() || '异常条目';
         const faqAnswerTextarea = document.getElementById('faq-answer-edit');
         const faqAnswerRaw = currentExceptionDetailType === 'faq' ? faqAnswerTextarea?.value.trim() : '';
+        if (currentExceptionDetailType === 'faq' && faqReviewState.currentId && faqAnswerTextarea) {
+            faqReviewState.editedAnswers.set(faqReviewState.currentId, faqAnswerTextarea.value.trim());
+        }
         const truncatedFaqAnswer = faqAnswerRaw
             ? (faqAnswerRaw.length > 80 ? `${faqAnswerRaw.slice(0, 80)}...` : faqAnswerRaw)
             : '';
@@ -1321,10 +1337,46 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('请先选择处理方式');
             return;
         }
+        if (currentExceptionDetailType === 'faq') {
+            const undecided = faqReviewState.items.filter(item => !faqReviewState.decisions.has(item.id));
+            if (undecided.length > 0) {
+                alert('请先为所有FAQ选择处理方式');
+                return;
+            }
+            const missingTarget = faqReviewState.items.find(item => {
+                const decision = faqReviewState.decisions.get(item.id);
+                const needsTarget = ['merge', 'update'].includes(decision?.action);
+                return needsTarget && !decision?.targetId;
+            });
+            if (missingTarget) {
+                alert('请为合并或更新选择目标问题');
+                return;
+            }
+            const missingAnswer = faqReviewState.items.find(item => {
+                const decision = faqReviewState.decisions.get(item.id);
+                const answer = faqReviewState.editedAnswers.get(item.id) || '';
+                const needsAnswer = ['merge', 'update', 'keep'].includes(decision?.action);
+                return needsAnswer && answer.trim() === '';
+            });
+            if (missingAnswer) {
+                alert('请完善所有FAQ答案内容');
+                return;
+            }
+        }
         const detailNoteText = note ? `，备注：${note}` : '';
         const detailAnswerText = truncatedFaqAnswer ? `，答案已更新为：“${truncatedFaqAnswer}”` : '';
         const detailActionText = currentExceptionAction ? `，处理方式：${currentExceptionAction}` : '';
         if (exceptionDetailNoteInput) exceptionDetailNoteInput.value = '';
+        if (currentExceptionDetailType === 'faq') {
+            const decisionSummary = faqReviewState.items.map(item => {
+                const decision = faqReviewState.decisions.get(item.id);
+                const label = decision?.label || '未处理';
+                const target = decision?.targetLabel ? `（目标：${decision.targetLabel}）` : '';
+                return `• ${item.question} -> ${label}${target}`;
+            }).join('\n');
+            completeExceptionAndReturn(`异常“${titleText}”已处理完毕${detailNoteText}\n${decisionSummary}`);
+            return;
+        }
         completeExceptionAndReturn(`异常“${titleText}”已处理完毕${detailActionText}${detailNoteText}${detailAnswerText}`);
     }
 
@@ -1447,6 +1499,74 @@ document.addEventListener('DOMContentLoaded', () => {
             window.handleKeepBoth();
         } else if (action === 'ignore') {
             window.handleIgnore();
+        }
+    });
+    document.addEventListener('click', (event) => {
+        const faqSelect = event.target.closest('.faq-item-select');
+        if (faqSelect) {
+            const faqId = faqSelect.getAttribute('data-faq-id');
+            if (faqId) {
+                const textarea = document.getElementById('faq-answer-edit');
+                if (textarea && faqReviewState.currentId) {
+                    faqReviewState.editedAnswers.set(faqReviewState.currentId, textarea.value.trim());
+                }
+                faqReviewState.currentId = faqId;
+                refreshFaqDetailUI();
+            }
+            return;
+        }
+        const faqDecisionBtn = event.target.closest('.faq-decision-btn');
+        if (faqDecisionBtn) {
+            const decision = faqDecisionBtn.getAttribute('data-decision');
+            if (decision && faqReviewState.currentId) {
+                const textarea = document.getElementById('faq-answer-edit');
+                if (textarea) {
+                    faqReviewState.editedAnswers.set(faqReviewState.currentId, textarea.value.trim());
+                }
+                const currentItem = faqReviewState.items.find(item => item.id === faqReviewState.currentId);
+                const targets = currentItem?.merge_targets || (currentItem?.similar_qa ? [{
+                    id: currentItem.similar_qa.id || 'target-1',
+                    question: currentItem.similar_qa.question,
+                    answer: currentItem.similar_qa.answer
+                }] : []);
+                const targetId = targets[0]?.id;
+                const targetLabel = targets[0]?.question || '';
+                const extras = (decision === 'merge' || decision === 'update')
+                    ? { targetId, targetLabel, answerPolicy: 'keep_target' }
+                    : {};
+                setFaqDecision(faqReviewState.currentId, decision, extras);
+                refreshFaqDetailUI();
+            }
+            return;
+        }
+    });
+    document.addEventListener('input', (event) => {
+        if (event.target && event.target.id === 'faq-answer-edit' && faqReviewState.currentId) {
+            faqReviewState.editedAnswers.set(faqReviewState.currentId, event.target.value);
+        }
+    });
+    document.addEventListener('change', (event) => {
+        const targetSelect = event.target.closest('.faq-target-select');
+        if (targetSelect && faqReviewState.currentId) {
+            const selectedId = targetSelect.value;
+            const currentItem = faqReviewState.items.find(item => item.id === faqReviewState.currentId);
+            const targets = currentItem?.merge_targets || [];
+            const target = targets.find(item => item.id === selectedId);
+            const decision = faqReviewState.decisions.get(faqReviewState.currentId);
+            if (decision) {
+                decision.targetId = selectedId;
+                decision.targetLabel = target ? target.question : '';
+                faqReviewState.decisions.set(faqReviewState.currentId, decision);
+                refreshFaqDetailUI();
+            }
+        }
+        const answerPolicyInput = event.target.closest('input[name="faq-answer-policy"]');
+        if (answerPolicyInput && faqReviewState.currentId) {
+            const decision = faqReviewState.decisions.get(faqReviewState.currentId);
+            if (decision) {
+                decision.answerPolicy = answerPolicyInput.value;
+                faqReviewState.decisions.set(faqReviewState.currentId, decision);
+            }
         }
     });
 
@@ -1593,31 +1713,151 @@ document.addEventListener('DOMContentLoaded', () => {
             return '<p class="text-center text-text-secondary py-8">暂无需要审核的FAQ</p>';
         }
 
-        const currentFaq = needReview[0];
+        initFaqReviewState(data);
+        return buildFaqDetailHtml();
+    }
+
+    function initFaqReviewState(data) {
+        faqReviewState.items = (data.needReview || []).map(item => ({
+            ...item
+        }));
+        faqReviewState.currentId = faqReviewState.items[0]?.id || null;
+        faqReviewState.decisions.clear();
+        faqReviewState.editedAnswers.clear();
+        faqReviewState.autoApprovedCount = data.autoApproved ? data.autoApproved.length : 0;
+        faqReviewState.items.forEach(item => {
+            if (item.answer) {
+                faqReviewState.editedAnswers.set(item.id, item.answer);
+            }
+        });
+    }
+
+    function buildFaqDetailHtml() {
+        const currentFaq = faqReviewState.items.find(item => item.id === faqReviewState.currentId) || faqReviewState.items[0];
+        if (!currentFaq) {
+            return '<p class="text-center text-text-secondary py-8">暂无需要审核的FAQ</p>';
+        }
+        const editedAnswer = faqReviewState.editedAnswers.get(currentFaq.id) || currentFaq.answer || '';
+        const groupId = currentFaq.group_id || '未分组';
+        const decidedCount = faqReviewState.items.filter(item => faqReviewState.decisions.has(item.id)).length;
+        const currentDecision = faqReviewState.decisions.get(currentFaq.id) || {};
+        const currentAction = currentDecision.action || '';
+        const decisionClass = (value) => currentAction === value
+            ? 'bg-primary text-white border-primary'
+            : 'bg-white text-text-primary border-border-light hover:bg-gray-50';
+        const targets = currentFaq.merge_targets || (currentFaq.similar_qa ? [{
+            id: currentFaq.similar_qa.id || 'target-1',
+            question: currentFaq.similar_qa.question,
+            answer: currentFaq.similar_qa.answer
+        }] : []);
+        const targetId = currentDecision.targetId || (targets[0]?.id || '');
+        const answerPolicy = currentDecision.answerPolicy || 'keep_target';
         return `
             <div class="space-y-4">
                 <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
                     <p class="text-sm text-blue-800">
                         <i class="fa fa-info-circle mr-2"></i>
-                        共 ${needReview.length} 条FAQ需要审核，${autoApproved ? autoApproved.length : 0} 条已自动入库
+                        共 ${faqReviewState.items.length} 条FAQ需要审核，${faqReviewState.autoApprovedCount} 条已自动入库
                     </p>
+                    <p class="text-xs text-blue-700 mt-2">流程：选择问题 → 选择处理方式 → 处理完成并返回</p>
                 </div>
 
                 <div class="bg-white rounded-lg border border-border-light p-4">
-                    <h3 class="text-sm font-semibold text-text-primary mb-3">当前处理项</h3>
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold text-text-primary">FAQ切换</h3>
+                        <span class="text-xs text-text-secondary">已处理 ${decidedCount}/${faqReviewState.items.length}</span>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        ${faqReviewState.items.map(item => {
+                            const decision = faqReviewState.decisions.get(item.id);
+                            const isActive = item.id === faqReviewState.currentId;
+                            return `
+                                <button class="faq-item-select px-3 py-1.5 text-xs rounded-full border ${isActive ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-text-secondary'}"
+                                    data-faq-id="${item.id}">
+                                    ${item.question.length > 12 ? `${item.question.slice(0, 12)}...` : item.question}
+                                    ${decision ? '·已处理' : '·未处理'}
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg border border-border-light p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold text-text-primary">当前处理项</h3>
+                        <span class="text-xs text-text-secondary">相似组：${groupId}</span>
+                    </div>
                     <p class="text-sm text-text-primary">${currentFaq.question || '产假有多少天？'}</p>
                     <div class="mt-3">
                         <h4 class="text-xs font-semibold text-text-secondary mb-2">答案（支持手动编辑）</h4>
                         <textarea id="faq-answer-edit" rows="5" class="w-full px-3 py-2 border border-border-light rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"
-                            placeholder="手动补充或纠正答案">${currentFaq.answer || '根据最新政策，产假为158天，包括基本产假98天和延长产假60天。'}</textarea>
+                            placeholder="手动补充或纠正答案">${editedAnswer}</textarea>
                         <p class="text-xs text-text-secondary mt-2">直接在此处调整答案内容，提交后将同步记录。</p>
                     </div>
+                </div>
+
+                <div class="bg-white rounded-lg border border-border-light p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold text-text-primary">处理动作</h3>
+                        <span class="text-xs text-text-secondary">相似组：${groupId}</span>
+                    </div>
+                    <div class="grid md:grid-cols-2 gap-2">
+                        <button class="faq-decision-btn px-3 py-2 text-sm rounded-lg border ${decisionClass('merge')}" data-decision="merge">
+                            并入已有问题（变成入口/别名）
+                        </button>
+                        <button class="faq-decision-btn px-3 py-2 text-sm rounded-lg border ${decisionClass('update')}" data-decision="update">
+                            用当前答案更新已有答案
+                        </button>
+                        <button class="faq-decision-btn px-3 py-2 text-sm rounded-lg border ${decisionClass('keep')}" data-decision="keep">
+                            保留为独立问题
+                        </button>
+                        <button class="faq-decision-btn px-3 py-2 text-sm rounded-lg border ${decisionClass('reject')}" data-decision="reject">
+                            驳回
+                        </button>
+                    </div>
+                    ${(currentAction === 'merge' || currentAction === 'update') ? `
+                        <div class="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-3">
+                            <div>
+                                <label class="block text-xs font-medium text-text-secondary mb-2">选择目标问题</label>
+                                <select class="faq-target-select w-full px-3 py-2 border border-border-light rounded-lg text-sm">
+                                    ${targets.map(target => `
+                                        <option value="${target.id}" ${target.id === targetId ? 'selected' : ''}>${target.question}</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                            ${currentAction === 'merge' ? `
+                                <div>
+                                    <label class="block text-xs font-medium text-text-secondary mb-2">合并后答案处理</label>
+                                    <div class="flex flex-wrap gap-3 text-xs text-text-secondary">
+                                        <label class="flex items-center">
+                                            <input type="radio" name="faq-answer-policy" value="keep_target" class="mr-2" ${answerPolicy === 'keep_target' ? 'checked' : ''}>
+                                            保留目标答案
+                                        </label>
+                                        <label class="flex items-center">
+                                            <input type="radio" name="faq-answer-policy" value="use_current" class="mr-2" ${answerPolicy === 'use_current' ? 'checked' : ''}>
+                                            用当前答案覆盖目标答案
+                                        </label>
+                                    </div>
+                                    <p class="text-xs text-text-secondary mt-2">合并后当前问题将作为目标问题的入口，用户搜索仍可命中。</p>
+                                </div>
+                            ` : `
+                                <p class="text-xs text-text-secondary">更新动作会用当前答案覆盖目标问题的答案。</p>
+                            `}
+                            ${targets.find(target => target.id === targetId) ? `
+                                <div class="bg-white border border-border-light rounded-lg p-3">
+                                    <div class="text-xs text-text-secondary mb-1">目标问题预览</div>
+                                    <div class="text-sm font-medium text-text-primary">${targets.find(target => target.id === targetId).question}</div>
+                                    <div class="text-xs text-text-secondary mt-1 line-clamp-2">${targets.find(target => target.id === targetId).answer}</div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : ''}
                 </div>
 
                 ${currentFaq.similar_qa ? `
                     <div class="bg-yellow-50 rounded-lg border border-yellow-200 p-4">
                         <h3 class="text-sm font-semibold text-yellow-800 mb-3">
-                            <i class="fa fa-exclamation-triangle mr-2"></i>发现相似问题
+                            <i class="fa fa-exclamation-triangle mr-2"></i>相似FAQ对比
                         </h3>
                         <div class="space-y-2">
                             <div class="text-sm">
@@ -1636,43 +1876,40 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 ` : ''}
 
-
-                ${needReview.length > 1 ? `
-                    <div class="bg-white rounded-lg border border-border-light p-4">
-                        <div class="flex items-center justify-between mb-3">
-                            <h3 class="text-sm font-semibold text-text-primary">待审FAQ列表（含相似/重复提示）</h3>
-                            <span class="text-xs text-text-secondary">共 ${needReview.length} 条</span>
-                        </div>
-                        <div class="space-y-3">
-                            ${needReview.map((item, index) => `
-                                <div class="border border-gray-200 rounded-lg p-3 ${index === 0 ? 'bg-blue-50/40 border-blue-100' : 'bg-white'}">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div class="flex-1">
-                                            <p class="text-sm font-medium text-text-primary">${item.question}</p>
-                                            <p class="text-xs text-text-secondary mt-1 line-clamp-2">${item.answer}</p>
-                                        </div>
-                                        <div class="flex flex-col items-end gap-1">
-                                            ${item.similarity ? `<span class="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700">相似度 ${Math.round(item.similarity * 100)}%</span>` : ''}
-                                            ${item.duplicate_group ? `<span class="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-700">重复组 ${item.duplicate_group}</span>` : ''}
-                                        </div>
-                                    </div>
-                                    ${item.similar_qa ? `
-                                        <div class="mt-2 bg-yellow-50 border border-yellow-200 rounded-lg p-2 text-xs text-yellow-800">
-                                            相似问题：${item.similar_qa.question}
-                                        </div>
-                                    ` : ''}
-                                    <div class="mt-3 flex flex-wrap gap-2 text-xs">
-                                        <span class="px-2 py-1 rounded-full bg-green-100 text-green-700">建议：合并答案</span>
-                                        <span class="px-2 py-1 rounded-full bg-blue-100 text-blue-700">建议：更新既有FAQ</span>
-                                        <span class="px-2 py-1 rounded-full bg-gray-100 text-gray-600">建议：保留为新问题</span>
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
+                <div class="bg-white rounded-lg border border-border-light p-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-sm font-semibold text-text-primary">当前状态</h3>
+                        <span class="text-xs text-text-secondary">
+                            ${currentDecision.label ? `${currentDecision.label}${currentDecision.targetLabel ? `（目标：${currentDecision.targetLabel}）` : ''}` : '未处理'}
+                        </span>
                     </div>
-                ` : ''}
+                </div>
             </div>
         `;
+    }
+
+    function refreshFaqDetailUI() {
+        if (currentExceptionDetailType !== 'faq' || !exceptionDetailContent) return;
+        exceptionDetailContent.innerHTML = buildFaqDetailHtml();
+    }
+
+    function setFaqDecision(id, action, extras = {}) {
+        const labelMap = {
+            merge: '并入已有问题',
+            update: '更新已有答案',
+            keep: '保留为新FAQ',
+            reject: '驳回'
+        };
+        const label = labelMap[action] || action;
+        faqReviewState.decisions.set(id, { action, label, ...extras });
+    }
+
+    function applyFaqGroupDecision(action) {
+        const currentFaq = faqReviewState.items.find(item => item.id === faqReviewState.currentId);
+        if (!currentFaq || !currentFaq.group_id) return;
+        faqReviewState.items
+            .filter(item => item.group_id === currentFaq.group_id)
+            .forEach(item => setFaqDecision(item.id, action));
     }
 
     // ========== 新功能：处理操作函数 ==========
@@ -1842,28 +2079,56 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'faq':
                 return {
                     needReview: [{
+                        id: 'faq-1',
                         question: '产假有多少天？',
                         answer: '根据最新政策，产假为158天，包括基本产假98天和延长产假60天。',
                         similar_qa: {
+                            id: 'target-1',
                             question: '产假天数是多少？',
                             answer: '根据2024年政策，产假为128天...',
                         },
                         similarity: 0.95,
-                        duplicate_group: 'A'
+                        group_id: 'A',
+                        merge_targets: [{
+                            id: 'target-1',
+                            question: '产假天数是多少？',
+                            answer: '根据2024年政策，产假为128天...'
+                        }, {
+                            id: 'target-2',
+                            question: '产假政策说明（2024）',
+                            answer: '产假总计128天，需提供相关证明材料。'
+                        }]
                     }, {
+                        id: 'faq-2',
                         question: '产假天数是多少？',
                         answer: '产假天数为158天，包含基础产假与延长产假。',
                         similarity: 0.9,
-                        duplicate_group: 'A',
+                        group_id: 'A',
                         similar_qa: {
+                            id: 'target-1',
                             question: '产假有多少天？',
                             answer: '根据最新政策，产假为158天...'
-                        }
+                        },
+                        merge_targets: [{
+                            id: 'target-1',
+                            question: '产假有多少天？',
+                            answer: '根据最新政策，产假为158天...'
+                        }, {
+                            id: 'target-3',
+                            question: '产假申请指南',
+                            answer: '产假申请流程与材料清单说明。'
+                        }]
                     }, {
+                        id: 'faq-3',
                         question: '陪产假有几天？',
                         answer: '陪产假为15天，需提供结婚证与出生证明。',
                         similarity: 0.72,
-                        duplicate_group: 'B'
+                        group_id: 'B',
+                        merge_targets: [{
+                            id: 'target-4',
+                            question: '陪产假政策说明',
+                            answer: '陪产假为15天，需按流程申请。'
+                        }]
                     }],
                     autoApproved: []
                 };
@@ -1923,18 +2188,7 @@ document.addEventListener('DOMContentLoaded', () => {
         addSystemMessageWithActions(`从文档中挖掘出 15 条FAQ：
 • 自动入库：12 条（高置信度）
 • 需要审核：3 条（低置信度或与已有FAQ相似）`, [
-            { label: '审核FAQ', icon: 'question-circle', action: 'open_faq_panel', data: {
-                needReview: [{
-                    question: '产假有多少天？',
-                    answer: '根据最新政策，产假为158天，包括基本产假98天和延长产假60天。',
-                    similar_qa: {
-                        question: '产假天数是多少？',
-                        answer: '根据2024年政策，产假为128天...'
-                    },
-                    similarity: 0.95
-                }],
-                autoApproved: []
-            }}
+            { label: '审核FAQ', icon: 'question-circle', action: 'open_faq_panel', data: getMockDataByType('faq') }
         ]);
     };
 
