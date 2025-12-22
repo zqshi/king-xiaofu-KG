@@ -46,6 +46,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const exceptionDetailNoteInput = document.getElementById('exception-detail-note');
     const exceptionDetailNoteContainer = document.getElementById('exception-detail-note-container');
     const exceptionDetailConfirmBtn = document.getElementById('exception-detail-confirm');
+    const exceptionTypeFilter = document.getElementById('exception-type-filter');
+    const exceptionStatusFilter = document.getElementById('exception-status-filter');
+    const exceptionSearchInput = document.getElementById('exception-search');
+    const conflictCompareModal = document.getElementById('conflict-compare-modal');
+    const conflictCompareClose = document.getElementById('conflict-compare-close');
+    const conflictCompareNew = document.getElementById('conflict-compare-new');
+    const conflictCompareOriginal = document.getElementById('conflict-compare-original');
+    const conflictCompareTitle = document.getElementById('conflict-compare-title');
+    const conflictCompareSimilarity = document.getElementById('conflict-compare-similarity');
 
     // 验证关键DOM元素
     console.log('🔍 关键元素检查:');
@@ -64,13 +73,43 @@ document.addEventListener('DOMContentLoaded', () => {
     let previewCollapsed = false;
     let currentExceptionDetailId = null;
     let currentExceptionDetailType = null;
+    let currentConflictData = null;
+    let currentExceptionAction = null;
     const conflictExampleData = {
         similarDoc: {
             title: '2024年产假政策',
             created_at: '2024-11-28 10:00:00'
         },
         similarity: 92,
-        differences: ['新增体检医院信息', '更新银行卡要求']
+        differences: ['新增体检医院信息', '更新银行卡要求'],
+        newDoc: {
+            title: '2025年产假政策（新增）',
+            updated_at: '2025-12-12 09:30:00',
+            owner: 'HR运营',
+            source: '上传文档',
+            summary: '新增体检医院信息与银行卡要求更新，其他政策核心条款保持一致。',
+            tags: ['产假政策', '员工福利', '流程更新'],
+            contentHtml: `
+                <p>适用范围：适用于<span class="bg-amber-100 text-amber-900 px-1 rounded">集团总部女性员工</span>，产假总计 158 天。</p>
+                <p>材料清单新增<span class="bg-amber-100 text-amber-900 px-1 rounded">出生证明复印件</span>与住院证明。</p>
+                <p>体检医院新增：市妇幼保健院、妇产医院。</p>
+                <p>银行卡要求更新：支持三类银行卡。</p>
+            `
+        },
+        originalDoc: {
+            title: '2024年产假政策（原始）',
+            updated_at: '2024-11-28 10:00:00',
+            owner: 'HR政策组',
+            source: '知识库',
+            summary: '明确产假天数与申请材料要求，作为上一版本基准。',
+            tags: ['产假政策', '福利基准'],
+            contentHtml: `
+                <p>适用范围：适用于<span class="bg-amber-100 text-amber-900 px-1 rounded">集团总部女性员工</span>，产假总计 128 天。</p>
+                <p>材料清单包含<span class="bg-amber-100 text-amber-900 px-1 rounded">出生证明复印件</span>与身份证复印件。</p>
+                <p>体检医院：市第一人民医院。</p>
+                <p>银行卡要求：支持两类银行卡。</p>
+            `
+        }
     };
 
     // ========== 辅助函数 ==========
@@ -1120,16 +1159,22 @@ document.addEventListener('DOMContentLoaded', () => {
         // 设置标题和图标
         switch(type) {
             case 'conflict':
-                titleEl.textContent = '文档冲突处理';
-                iconEl.className = 'fa fa-exclamation-triangle text-warning text-lg';
-                contentEl.innerHTML = generateConflictDetail(data);
+                {
+                    const conflictData = data || conflictExampleData;
+                    currentConflictData = conflictData;
+                    titleEl.textContent = '文档冲突处理';
+                    iconEl.className = 'fa fa-exclamation-triangle text-warning text-lg';
+                    contentEl.innerHTML = generateConflictDetail(conflictData);
+                }
                 break;
             case 'category':
+                currentConflictData = null;
                 titleEl.textContent = '分类确认';
                 iconEl.className = 'fa fa-folder text-primary text-lg';
                 contentEl.innerHTML = generateCategoryDetail(data);
                 break;
             case 'faq':
+                currentConflictData = null;
                 titleEl.textContent = 'FAQ审核';
                 iconEl.className = 'fa fa-question-circle text-primary text-lg';
                 contentEl.innerHTML = generateFaqDetail(data);
@@ -1144,6 +1189,62 @@ document.addEventListener('DOMContentLoaded', () => {
     function closeDetailPanel() {
         detailPanel.classList.add('translate-x-full');
         detailOverlay.classList.add('hidden');
+    }
+
+    function buildConflictDocDetail(doc, badgeText, badgeClasses) {
+        if (!doc) {
+            return '<p class="text-sm text-text-secondary">暂无文档详情</p>';
+        }
+        const tagsHtml = doc.tags && doc.tags.length > 0
+            ? `<div class="flex flex-wrap gap-2 mt-3">${doc.tags.map(tag => `
+                <span class="px-2 py-0.5 text-xs rounded-full bg-white text-text-secondary border border-gray-200">
+                    ${tag}
+                </span>
+            `).join('')}</div>`
+            : '';
+        return `
+            <div class="flex items-start justify-between">
+                <div>
+                    <p class="text-sm font-semibold text-text-primary">${doc.title || '未命名文档'}</p>
+                    <p class="text-xs text-text-secondary mt-1">更新时间：${doc.updated_at || doc.created_at || '--'}</p>
+                </div>
+                <span class="px-2 py-0.5 text-xs rounded-full ${badgeClasses}">${badgeText}</span>
+            </div>
+            <div class="mt-3 text-xs text-text-secondary space-y-1">
+                <p>负责人：<span class="text-text-primary">${doc.owner || '--'}</span></p>
+                <p>来源：<span class="text-text-primary">${doc.source || '--'}</span></p>
+            </div>
+            ${doc.summary ? `<div class="mt-3 text-sm text-text-primary leading-relaxed">${doc.summary}</div>` : ''}
+            ${doc.contentHtml ? `<div class="mt-3 space-y-2 text-sm text-text-primary leading-relaxed">${doc.contentHtml}</div>` : ''}
+            ${tagsHtml}
+        `;
+    }
+
+    function openConflictCompareModal(data) {
+        const detailData = data || currentConflictData;
+        if (!detailData || !conflictCompareModal) return;
+        if (conflictCompareTitle) {
+            const newTitle = detailData.newDoc?.title || '新增文档';
+            const originalTitle = detailData.originalDoc?.title || detailData.similarDoc?.title || '原始文档';
+            conflictCompareTitle.textContent = `${newTitle} vs ${originalTitle}`;
+        }
+        if (conflictCompareSimilarity) {
+            conflictCompareSimilarity.textContent = `相似度 ${detailData.similarity || '--'}%`;
+        }
+        if (conflictCompareNew) {
+            conflictCompareNew.innerHTML = buildConflictDocDetail(detailData.newDoc, '新增文档', 'bg-orange-100 text-orange-700');
+        }
+        if (conflictCompareOriginal) {
+            const originalDoc = detailData.originalDoc || detailData.similarDoc || {};
+            conflictCompareOriginal.innerHTML = buildConflictDocDetail(originalDoc, '原始文档', 'bg-gray-200 text-gray-700');
+        }
+        conflictCompareModal.classList.remove('hidden');
+    }
+
+    function closeConflictCompareModal() {
+        if (conflictCompareModal) {
+            conflictCompareModal.classList.add('hidden');
+        }
     }
 
     function showExceptionListView() {
@@ -1164,6 +1265,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         currentExceptionDetailId = meta.id;
         currentExceptionDetailType = meta.type;
+        currentExceptionAction = meta.type === 'conflict' ? '覆盖为新版本' : null;
         if (exceptionDetailNoteInput) {
             exceptionDetailNoteInput.value = '';
         }
@@ -1180,15 +1282,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function handleExceptionDetailCompletion() {
+    function completeExceptionAndReturn(message) {
         if (!currentExceptionDetailId) return;
-        const note = exceptionDetailNoteInput?.value.trim();
-        const titleText = exceptionDetailTitle?.textContent?.trim() || '异常条目';
-        const faqAnswerTextarea = document.getElementById('faq-answer-edit');
-        const faqAnswerRaw = currentExceptionDetailType === 'faq' ? faqAnswerTextarea?.value.trim() : '';
-        const truncatedFaqAnswer = faqAnswerRaw
-            ? (faqAnswerRaw.length > 80 ? `${faqAnswerRaw.slice(0, 80)}...` : faqAnswerRaw)
-            : '';
         const checkbox = document.querySelector(`.exception-checkbox[data-exception-id="${currentExceptionDetailId}"]`);
         const row = checkbox ? checkbox.closest('tr') : null;
 
@@ -1199,19 +1294,38 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => row.remove(), 200);
         }
 
-        const detailNoteText = note ? `，备注：${note}` : '';
-        const detailAnswerText = truncatedFaqAnswer ? `，答案已更新为：“${truncatedFaqAnswer}”` : '';
-        addSystemMessage(`异常“${titleText}”已处理完毕${detailNoteText}${detailAnswerText}`);
+        if (message) {
+            addSystemMessage(message);
+        }
 
         batchSelectionState.remove(String(currentExceptionDetailId));
         updateExceptionSelection();
 
         currentExceptionDetailId = null;
         currentExceptionDetailType = null;
-
-        if (exceptionDetailNoteInput) exceptionDetailNoteInput.value = '';
+        currentExceptionAction = null;
 
         showExceptionListView();
+    }
+
+    function handleExceptionDetailCompletion() {
+        if (!currentExceptionDetailId) return;
+        const note = exceptionDetailNoteInput?.value.trim();
+        const titleText = exceptionDetailTitle?.textContent?.trim() || '异常条目';
+        const faqAnswerTextarea = document.getElementById('faq-answer-edit');
+        const faqAnswerRaw = currentExceptionDetailType === 'faq' ? faqAnswerTextarea?.value.trim() : '';
+        const truncatedFaqAnswer = faqAnswerRaw
+            ? (faqAnswerRaw.length > 80 ? `${faqAnswerRaw.slice(0, 80)}...` : faqAnswerRaw)
+            : '';
+        if (currentExceptionDetailType === 'conflict' && !currentExceptionAction) {
+            alert('请先选择处理方式');
+            return;
+        }
+        const detailNoteText = note ? `，备注：${note}` : '';
+        const detailAnswerText = truncatedFaqAnswer ? `，答案已更新为：“${truncatedFaqAnswer}”` : '';
+        const detailActionText = currentExceptionAction ? `，处理方式：${currentExceptionAction}` : '';
+        if (exceptionDetailNoteInput) exceptionDetailNoteInput.value = '';
+        completeExceptionAndReturn(`异常“${titleText}”已处理完毕${detailActionText}${detailNoteText}${detailAnswerText}`);
     }
 
     function getExceptionTypeLabel(type) {
@@ -1258,6 +1372,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (detailOverlay) {
         detailOverlay.addEventListener('click', closeDetailPanel);
     }
+    if (conflictCompareClose) {
+        conflictCompareClose.addEventListener('click', closeConflictCompareModal);
+    }
+    if (conflictCompareModal) {
+        conflictCompareModal.addEventListener('click', (event) => {
+            if (event.target === conflictCompareModal) {
+                closeConflictCompareModal();
+            }
+        });
+    }
     if (exceptionClose) {
         exceptionClose.addEventListener('click', closeExceptionPanel);
     }
@@ -1270,6 +1394,61 @@ document.addEventListener('DOMContentLoaded', () => {
     if (exceptionDetailConfirmBtn) {
         exceptionDetailConfirmBtn.addEventListener('click', handleExceptionDetailCompletion);
     }
+    if (exceptionTypeFilter) {
+        exceptionTypeFilter.addEventListener('change', applyExceptionFilters);
+    }
+    if (exceptionStatusFilter) {
+        exceptionStatusFilter.addEventListener('change', applyExceptionFilters);
+    }
+    if (exceptionSearchInput) {
+        exceptionSearchInput.addEventListener('input', applyExceptionFilters);
+    }
+    document.addEventListener('click', (event) => {
+        const trigger = event.target.closest('[data-action="open-conflict-compare"]');
+        if (trigger) {
+            event.preventDefault();
+            openConflictCompareModal(currentConflictData);
+        }
+    });
+    document.addEventListener('click', (event) => {
+        const actionBtn = event.target.closest('.conflict-action-btn');
+        if (!actionBtn) return;
+        const action = actionBtn.getAttribute('data-conflict-action');
+        if (!action) return;
+
+        const actionLabelMap = {
+            replace: '覆盖为新版本',
+            keep_both: '保留两个版本',
+            ignore: '忽略相似检测'
+        };
+        const actionLabel = actionLabelMap[action] || action;
+
+        const isExceptionDetail = currentExceptionDetailType === 'conflict'
+            && exceptionDetailView
+            && !exceptionDetailView.classList.contains('hidden');
+
+        if (isExceptionDetail) {
+            const group = actionBtn.closest('[data-conflict-action-group]');
+            if (group) {
+                group.querySelectorAll('.conflict-action-btn').forEach(btn => {
+                    btn.classList.remove('bg-primary', 'text-white', 'hover:bg-secondary');
+                    btn.classList.add('bg-white', 'text-text-primary', 'border', 'border-border-light', 'hover:bg-gray-50');
+                });
+            }
+            actionBtn.classList.remove('bg-white', 'text-text-primary', 'border', 'border-border-light', 'hover:bg-gray-50');
+            actionBtn.classList.add('bg-primary', 'text-white', 'hover:bg-secondary');
+            currentExceptionAction = actionLabel;
+            return;
+        }
+
+        if (action === 'replace') {
+            window.handleReplaceDocument();
+        } else if (action === 'keep_both') {
+            window.handleKeepBoth();
+        } else if (action === 'ignore') {
+            window.handleIgnore();
+        }
+    });
 
     // ========== 新功能：面板详情生成 ==========
     function generateConflictDetail(data) {
@@ -1307,30 +1486,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
 
                 ${differences && differences.length > 0 ? `
-                    <div class="bg-white rounded-lg border border-border-light p-4">
-                        <h3 class="text-sm font-semibold text-text-primary mb-3">主要差异</h3>
-                        <ul class="space-y-2">
-                            ${differences.map(diff => `
-                                <li class="flex items-start text-sm text-text-primary">
-                                    <i class="fa fa-circle text-primary text-xs mr-2 mt-1"></i>
-                                    <span>${diff}</span>
-                                </li>
-                            `).join('')}
-                        </ul>
+                    <div class="bg-white rounded-lg border border-border-light p-4 space-y-4">
+                        <div>
+                            <h3 class="text-sm font-semibold text-text-primary mb-3">主要差异</h3>
+                            <ul class="space-y-2">
+                                ${differences.map(diff => `
+                                    <li class="flex items-start text-sm text-text-primary">
+                                        <i class="fa fa-circle text-primary text-xs mr-2 mt-1"></i>
+                                        <span>${diff}</span>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <h4 class="text-sm font-semibold text-text-primary">对比详情</h4>
+                                <span class="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700">相似度 ${similarity}%</span>
+                            </div>
+                            <div class="grid md:grid-cols-2 gap-4">
+                                <div class="border border-orange-100 bg-orange-50/40 rounded-lg p-3">
+                                    ${buildConflictDocDetail(data.newDoc, '新增文档', 'bg-orange-100 text-orange-700')}
+                                </div>
+                                <div class="border border-gray-200 bg-white rounded-lg p-3">
+                                    ${buildConflictDocDetail(data.originalDoc || data.similarDoc, '原始文档', 'bg-gray-200 text-gray-700')}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 ` : ''}
 
         <div class="bg-white rounded-lg border border-border-light p-4">
             <h3 class="text-sm font-semibold text-text-primary mb-3">处理选项</h3>
-            <div class="space-y-2">
-                <button onclick="handleReplaceDocument()" class="w-full flex items-center justify-between px-4 py-3 bg-primary text-white rounded-lg hover:bg-secondary transition-all">
+            <div class="space-y-2" data-conflict-action-group>
+                <button class="w-full flex items-center justify-between px-4 py-3 bg-primary text-white rounded-lg hover:bg-secondary transition-all conflict-action-btn" data-conflict-action="replace">
                     <div class="flex items-center">
                         <i class="fa fa-refresh mr-3"></i>
                         <span>覆盖为新版本</span>
                     </div>
                     <i class="fa fa-chevron-right"></i>
                 </button>
-                <button onclick="handleKeepBoth()" class="w-full flex items-center justify-between px-4 py-3 bg-white text-text-primary border border-border-light rounded-lg hover:bg-gray-50 transition-all">
+                <button class="w-full flex items-center justify-between px-4 py-3 bg-white text-text-primary border border-border-light rounded-lg hover:bg-gray-50 transition-all conflict-action-btn" data-conflict-action="keep_both">
                     <div class="flex items-center">
                         <i class="fa fa-copy mr-3"></i>
                         <span>保留两个版本</span>
@@ -1409,15 +1604,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
 
                 <div class="bg-white rounded-lg border border-border-light p-4">
-                    <h3 class="text-sm font-semibold text-text-primary mb-3">问题</h3>
+                    <h3 class="text-sm font-semibold text-text-primary mb-3">当前处理项</h3>
                     <p class="text-sm text-text-primary">${currentFaq.question || '产假有多少天？'}</p>
-                </div>
-
-                <div class="bg-white rounded-lg border border-border-light p-4">
-                    <h3 class="text-sm font-semibold text-text-primary mb-3">答案（支持手动编辑）</h3>
-                    <textarea id="faq-answer-edit" rows="5" class="w-full px-3 py-2 border border-border-light rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"
-                        placeholder="手动补充或纠正答案">${currentFaq.answer || '根据最新政策，产假为158天，包括基本产假98天和延长产假60天。'}</textarea>
-                    <p class="text-xs text-text-secondary mt-2">直接在此处调整答案内容，提交后将同步记录。</p>
+                    <div class="mt-3">
+                        <h4 class="text-xs font-semibold text-text-secondary mb-2">答案（支持手动编辑）</h4>
+                        <textarea id="faq-answer-edit" rows="5" class="w-full px-3 py-2 border border-border-light rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"
+                            placeholder="手动补充或纠正答案">${currentFaq.answer || '根据最新政策，产假为158天，包括基本产假98天和延长产假60天。'}</textarea>
+                        <p class="text-xs text-text-secondary mt-2">直接在此处调整答案内容，提交后将同步记录。</p>
+                    </div>
                 </div>
 
                 ${currentFaq.similar_qa ? `
@@ -1444,8 +1638,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
                 ${needReview.length > 1 ? `
-                    <div class="text-center text-sm text-text-secondary">
-                        1 / ${needReview.length}
+                    <div class="bg-white rounded-lg border border-border-light p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-semibold text-text-primary">待审FAQ列表（含相似/重复提示）</h3>
+                            <span class="text-xs text-text-secondary">共 ${needReview.length} 条</span>
+                        </div>
+                        <div class="space-y-3">
+                            ${needReview.map((item, index) => `
+                                <div class="border border-gray-200 rounded-lg p-3 ${index === 0 ? 'bg-blue-50/40 border-blue-100' : 'bg-white'}">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="flex-1">
+                                            <p class="text-sm font-medium text-text-primary">${item.question}</p>
+                                            <p class="text-xs text-text-secondary mt-1 line-clamp-2">${item.answer}</p>
+                                        </div>
+                                        <div class="flex flex-col items-end gap-1">
+                                            ${item.similarity ? `<span class="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700">相似度 ${Math.round(item.similarity * 100)}%</span>` : ''}
+                                            ${item.duplicate_group ? `<span class="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-700">重复组 ${item.duplicate_group}</span>` : ''}
+                                        </div>
+                                    </div>
+                                    ${item.similar_qa ? `
+                                        <div class="mt-2 bg-yellow-50 border border-yellow-200 rounded-lg p-2 text-xs text-yellow-800">
+                                            相似问题：${item.similar_qa.question}
+                                        </div>
+                                    ` : ''}
+                                    <div class="mt-3 flex flex-wrap gap-2 text-xs">
+                                        <span class="px-2 py-1 rounded-full bg-green-100 text-green-700">建议：合并答案</span>
+                                        <span class="px-2 py-1 rounded-full bg-blue-100 text-blue-700">建议：更新既有FAQ</span>
+                                        <span class="px-2 py-1 rounded-full bg-gray-100 text-gray-600">建议：保留为新问题</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
                     </div>
                 ` : ''}
             </div>
@@ -1454,16 +1677,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ========== 新功能：处理操作函数 ==========
     window.handleReplaceDocument = function() {
+        if (currentExceptionDetailType === 'conflict' && exceptionDetailView && !exceptionDetailView.classList.contains('hidden')) {
+            currentExceptionAction = '覆盖为新版本';
+            return;
+        }
         closeDetailPanel();
         addSystemMessage('已将旧版本归档，新版本已激活！');
     };
 
     window.handleKeepBoth = function() {
+        if (currentExceptionDetailType === 'conflict' && exceptionDetailView && !exceptionDetailView.classList.contains('hidden')) {
+            currentExceptionAction = '保留两个版本';
+            return;
+        }
         closeDetailPanel();
         addSystemMessage('已保留两个版本，均可正常检索。');
     };
 
     window.handleIgnore = function() {
+        if (currentExceptionDetailType === 'conflict' && exceptionDetailView && !exceptionDetailView.classList.contains('hidden')) {
+            currentExceptionAction = '忽略相似检测';
+            return;
+        }
         closeDetailPanel();
         addSystemMessage('已忽略相似检测，文档继续处理。');
     };
@@ -1486,18 +1721,20 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // ========== 新功能：异常列表初始化 ==========
-    function initExceptionList() {
-        const mockExceptions = [
-            { id: 1, title: '2025年产假政策 vs 2024年产假政策', type: 'conflict', time: '2025-12-12 10:30', priority: 'high' },
-            { id: 2, title: '员工心理健康咨询服务指南', type: 'category', time: '2025-12-12 10:25', priority: 'medium' },
-            { id: 3, title: 'FAQ: 产假有多少天？', type: 'faq', time: '2025-12-12 10:20', priority: 'low' },
-            { id: 4, title: '远程办公申请流程文档', type: 'category', time: '2025-12-12 10:15', priority: 'medium' },
-            { id: 5, title: '新员工入职指南 vs 入职指南2025', type: 'conflict', time: '2025-12-12 10:10', priority: 'high' },
-        ];
+    const exceptionSeedData = [
+        { id: 1, title: '2025年产假政策 vs 2024年产假政策', type: 'conflict', time: '2025-12-12 10:30', priority: 'high', status: 'pending' },
+        { id: 2, title: '员工心理健康咨询服务指南', type: 'category', time: '2025-12-12 10:25', priority: 'medium', status: 'in_progress' },
+        { id: 3, title: 'FAQ: 产假有多少天？', type: 'faq', time: '2025-12-12 10:20', priority: 'low', status: 'pending' },
+        { id: 4, title: '远程办公申请流程文档', type: 'category', time: '2025-12-12 10:15', priority: 'medium', status: 'pending' },
+        { id: 5, title: '新员工入职指南 vs 入职指南2025', type: 'conflict', time: '2025-12-12 10:10', priority: 'high', status: 'in_progress' },
+    ];
 
+    let exceptionData = [...exceptionSeedData];
+
+    function renderExceptionList(list) {
         const listEl = document.getElementById('exception-list');
         if (listEl) {
-            listEl.innerHTML = mockExceptions.map(ex => `
+            listEl.innerHTML = list.map(ex => `
                 <tr class="hover:bg-gray-50 transition-colors">
                     <td class="px-4 py-3">
                         <input type="checkbox" class="w-4 h-4 exception-checkbox" data-exception-id="${ex.id}" data-exception-type="${ex.type}">
@@ -1520,26 +1757,59 @@ document.addEventListener('DOMContentLoaded', () => {
                         </span>
                     </td>
                     <td class="px-4 py-3">
-                        <button onclick="handleExceptionDetail('${ex.type}', ${ex.id})" class="text-primary hover:text-secondary text-sm">
+                        <button class="text-primary hover:text-secondary text-sm exception-detail-btn" data-exception-id="${ex.id}" data-exception-type="${ex.type}">
                             <i class="fa fa-eye mr-1"></i>查看详情
                         </button>
                     </td>
                 </tr>
             `).join('');
 
+            listEl.onclick = (event) => {
+                const target = event.target.closest('.exception-detail-btn');
+                if (!target) return;
+                const exceptionId = target.getAttribute('data-exception-id');
+                const exceptionType = target.getAttribute('data-exception-type');
+                if (exceptionId && exceptionType) {
+                    window.handleExceptionDetail(exceptionType, Number(exceptionId));
+                }
+            };
+
             // 绑定批量选择事件
             bindExceptionCheckboxEvents();
+            updateExceptionSelection();
         }
+    }
+
+    function applyExceptionFilters() {
+        const typeValue = exceptionTypeFilter?.value || 'all';
+        const statusValue = exceptionStatusFilter?.value || 'all';
+        const keyword = exceptionSearchInput?.value.trim().toLowerCase() || '';
+        batchSelectionState.reset();
+        const filtered = exceptionData.filter(item => {
+            const typeMatch = typeValue === 'all' || item.type === typeValue;
+            const statusMatch = statusValue === 'all' || item.status === statusValue;
+            const keywordMatch = keyword === '' || item.title.toLowerCase().includes(keyword);
+            return typeMatch && statusMatch && keywordMatch;
+        });
+        renderExceptionList(filtered);
+    }
+
+    function initExceptionList() {
+        exceptionData = [...exceptionSeedData];
+        applyExceptionFilters();
     }
 
     function buildExceptionDetailHtml(type) {
         const data = getMockDataByType(type);
         switch(type) {
             case 'conflict':
+                currentConflictData = data;
                 return generateConflictDetail(data);
             case 'category':
+                currentConflictData = null;
                 return generateCategoryDetail(data);
             case 'faq':
+                currentConflictData = null;
                 return generateFaqDetail(data);
             default:
                 return '<p class="text-sm text-text-secondary">暂无详细信息</p>';
@@ -1561,11 +1831,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function getMockDataByType(type) {
         switch(type) {
             case 'conflict':
-                return {
-                    similarDoc: { title: '2024年产假政策', created_at: '2024-11-28 10:00:00' },
-                    similarity: 92,
-                    differences: ['新增体检医院信息', '更新银行卡要求']
-                };
+                return conflictExampleData;
             case 'category':
                 return {
                     category: { company_entity: '集团总部', business_domain: '员工关系/员工服务' },
@@ -1582,7 +1848,22 @@ document.addEventListener('DOMContentLoaded', () => {
                             question: '产假天数是多少？',
                             answer: '根据2024年政策，产假为128天...',
                         },
-                        similarity: 0.95
+                        similarity: 0.95,
+                        duplicate_group: 'A'
+                    }, {
+                        question: '产假天数是多少？',
+                        answer: '产假天数为158天，包含基础产假与延长产假。',
+                        similarity: 0.9,
+                        duplicate_group: 'A',
+                        similar_qa: {
+                            question: '产假有多少天？',
+                            answer: '根据最新政策，产假为158天...'
+                        }
+                    }, {
+                        question: '陪产假有几天？',
+                        answer: '陪产假为15天，需提供结婚证与出生证明。',
+                        similarity: 0.72,
+                        duplicate_group: 'B'
                     }],
                     autoApproved: []
                 };
@@ -1617,11 +1898,7 @@ document.addEventListener('DOMContentLoaded', () => {
 主要差异：
 • 新增体检医院信息
 • 更新银行卡要求`, [
-            { label: '处理', icon: 'cog', action: 'open_conflict_panel', data: {
-                similarDoc: { title: '2024年产假政策', created_at: '2024-11-28 10:00:00' },
-                similarity: 92,
-                differences: ['新增体检医院信息', '更新银行卡要求']
-            }}
+            { label: '处理', icon: 'cog', action: 'open_conflict_panel', data: conflictExampleData }
         ]);
     };
 
@@ -1740,18 +2017,26 @@ document.addEventListener('DOMContentLoaded', () => {
             selectAllBtn.replaceWith(selectAllBtn.cloneNode(true)); // 移除旧事件
             document.getElementById('exception-select-all').addEventListener('change', function() {
                 const availableCheckboxes = document.querySelectorAll('.exception-checkbox:not(:disabled)');
+                let mismatch = false;
                 availableCheckboxes.forEach(checkbox => {
                     checkbox.checked = this.checked;
                     const exceptionId = checkbox.getAttribute('data-exception-id');
                     const exceptionType = checkbox.getAttribute('data-exception-type');
 
                     if (this.checked) {
-                        batchSelectionState.add(exceptionId, exceptionType);
+                        const success = batchSelectionState.add(exceptionId, exceptionType);
+                        if (!success) {
+                            checkbox.checked = false;
+                            mismatch = true;
+                        }
                     } else {
                         batchSelectionState.remove(exceptionId);
                     }
                 });
 
+                if (mismatch) {
+                    alert('只能批量处理相同类型的异常');
+                }
                 updateExceptionSelection();
             });
         }
@@ -2277,39 +2562,319 @@ document.addEventListener('DOMContentLoaded', () => {
         const panel = document.getElementById('node-meta-panel');
         if (!panel) return;
 
-        const meta = getNodeMeta(nodeId, nodeName);
-        if (!meta) {
-            panel.classList.add('hidden');
-            return;
-        }
-
-        panel.classList.remove('hidden');
-        const pathText = meta.path ? meta.path.join(' / ') : (nodeName || '全部知识');
-        panel.innerHTML = `
-            <div class="bg-white shadow-card rounded-lg p-4 border border-gray-100 col-span-2">
-                <div class="flex items-center justify-between mb-2">
-                    <div class="text-xs font-semibold text-teal-600 uppercase tracking-wide">节点定义</div>
-                    <div class="text-[11px] text-gray-500">ID: ${meta.id}</div>
-                </div>
-                <p class="text-sm text-text-primary leading-relaxed">${meta.definition}</p>
-            </div>
-            <div class="bg-white shadow-card rounded-lg p-4 border border-gray-100">
-                <div class="text-xs font-semibold text-teal-600 uppercase tracking-wide mb-1">分类标准</div>
-                <p class="text-sm text-text-primary leading-relaxed">${meta.classification}</p>
-                <div class="flex items-center text-xs text-gray-500 mt-3 space-x-3">
-                    <span>直接子类: ${meta.children || 0}</span>
-                    <span>含下级: ${meta.descendants || 0}</span>
-                </div>
-            </div>
-            <div class="bg-white shadow-card rounded-lg p-4 border border-gray-100">
-                <div class="text-xs font-semibold text-teal-600 uppercase tracking-wide mb-1">导航路径</div>
-                <p class="text-sm text-text-primary leading-relaxed">${pathText}</p>
-            </div>
-        `;
+        panel.classList.add('hidden');
     }
 
     // 模拟FAQ数据存储
     let faqData = [...faqSeed];
+
+    // 文档数据存储（文档粒度）
+    const documentStore = {
+        'doc-policy': {
+            id: 'doc-policy',
+            title: 'HR政策手册 V1.0',
+            desc: '战略与制度分类模型、角色职责与发布口径',
+            summary: '沉淀HR政策体系的版本边界、发布流程与责任矩阵，适配总部与区域双层治理。',
+            content: `# HR政策手册 V1.0\n\n## 适用范围\n- 总部与区域双层治理\n- 核心HR政策与制度口径\n\n## 关键流程\n1. 政策立项\n2. 合规评审\n3. 发布与宣导\n\n> 重点：所有政策变更需完成版本备案与负责人确认。`,
+            categoryId: 'all',
+            owner: '共享服务中心',
+            version: 'V1.0',
+            status: 'published',
+            createdAt: '2025-12-01',
+            updatedAt: '2025-12-08',
+            source: '制度与政策',
+            tags: ['政策', '制度', '治理']
+        },
+        'doc-onboarding': {
+            id: 'doc-onboarding',
+            title: '入职准备清单（标准版）',
+            desc: '入职前材料、设备/账号开通与首日迎新指引',
+            summary: '覆盖入职前7天准备清单与首日流程，标准化材料收集与账号开通顺序。',
+            content: `# 入职准备清单（标准版）\n\n## 入职前 7 天\n- 确认offer与入职日期\n- 完成材料收集与签署\n- 触发设备/账号开通\n\n## 首日安排\n- 迎新介绍\n- 办公设备交付\n- 部门融入与目标对齐`,
+            categoryId: 'talent-onboarding',
+            owner: '招聘与入职组',
+            version: 'V2.3',
+            status: 'published',
+            createdAt: '2025-11-15',
+            updatedAt: '2025-12-02',
+            source: '入职流程',
+            tags: ['入职', '清单', '流程']
+        },
+        'doc-payroll': {
+            id: 'doc-payroll',
+            title: '月度薪资核算SOP',
+            desc: '薪资校验点、发薪SLA、个税与社保申报检查',
+            summary: '定义月度薪资核算的输入、校验与复核步骤，保证发薪SLA与合规性。',
+            content: `# 月度薪资核算SOP\n\n## 输入清单\n- 出勤与假勤\n- 绩效与奖惩\n- 社保与个税\n\n## 核算步骤\n1. 数据校验\n2. 规则核算\n3. 复核与发薪`,
+            categoryId: 'reward-payroll',
+            owner: '薪酬福利组',
+            version: 'V1.6',
+            status: 'published',
+            createdAt: '2025-11-30',
+            updatedAt: '2025-12-09',
+            source: '薪酬运营',
+            tags: ['薪资', 'SOP', '核算']
+        },
+        'doc-knowledge': {
+            id: 'doc-knowledge',
+            title: '知识运营治理指引',
+            desc: '分类治理、责任人矩阵与版本变更流程',
+            summary: '对知识库运营的分类标准、生命周期与版本发布节奏进行统一说明。',
+            content: `# 知识运营治理指引\n\n## 治理目标\n- 分类清晰\n- 责任明确\n- 版本可追溯\n\n## 版本管理\n> 任何变更需记录变更原因与影响范围。`,
+            categoryId: 'knowledge-governance',
+            owner: '知识运营团队',
+            version: 'V1.1',
+            status: 'published',
+            createdAt: '2025-12-05',
+            updatedAt: '2025-12-10',
+            source: '知识运营',
+            tags: ['治理', '运营', '版本']
+        },
+        'doc-probation': {
+            id: 'doc-probation',
+            title: '试用期目标与转正模板',
+            desc: '试用期OKR模板、辅导节奏与预警提示',
+            summary: '提供试用期目标设定模板与转正评估要点，支持HRBP统一对齐。',
+            content: `# 试用期目标与转正模板\n\n## OKR 模板\n- 目标对齐\n- 关键结果\n\n## 转正评估\n1. 过程反馈\n2. 结果评估\n3. 主管审批`,
+            categoryId: 'talent-onboarding',
+            owner: '人才发展组',
+            version: 'V1.4',
+            status: 'draft',
+            createdAt: '2025-12-02',
+            updatedAt: '2025-12-06',
+            source: '人才发展',
+            tags: ['试用期', '模板', '转正']
+        },
+        'doc-leave': {
+            id: 'doc-leave',
+            title: '假期与加班调休政策',
+            desc: '假期口径、额度、审批链与加班调休规则',
+            summary: '明确假期类别定义、额度与审批流程，并对加班调休进行政策解释。',
+            content: `# 假期与加班调休政策\n\n## 假期类别\n- 法定假期\n- 年休假\n- 病假与事假\n\n## 调休规则\n> 加班调休需在 30 天内使用。`,
+            categoryId: 'operation-attendance',
+            owner: '考勤与假勤组',
+            version: 'V2.0',
+            status: 'published',
+            createdAt: '2025-12-03',
+            updatedAt: '2025-12-07',
+            source: '考勤制度',
+            tags: ['假期', '加班', '政策']
+        },
+        'doc-attendance': {
+            id: 'doc-attendance',
+            title: '考勤异常处理SOP',
+            desc: '漏打卡、异常工时的举证材料与纠错流程',
+            summary: '规范考勤异常处理流程，统一举证材料与工时纠错口径。',
+            content: `# 考勤异常处理SOP\n\n## 异常类型\n- 漏打卡\n- 工时异常\n\n## 处理流程\n1. 提交证明\n2. 审核与更正\n3. 留痕归档`,
+            categoryId: 'operation-attendance',
+            owner: '考勤与假勤组',
+            version: 'V1.8',
+            status: 'published',
+            createdAt: '2025-11-25',
+            updatedAt: '2025-12-05',
+            source: '考勤运营',
+            tags: ['考勤', '异常', '流程']
+        },
+        'doc-tax': {
+            id: 'doc-tax',
+            title: '个税与社保申报操作手册',
+            desc: '申报周期、基数口径与异常处理节点',
+            summary: '覆盖个税与社保申报的全流程要点、基数口径与异常处理。',
+            content: `# 个税与社保申报操作手册\n\n## 申报周期\n- 个税：每月 1-15 日\n- 社保：每月 5-20 日\n\n## 异常处理\n> 发现异常需同步法务与薪酬负责人。`,
+            categoryId: 'reward-payroll',
+            owner: '薪酬福利组',
+            version: 'V1.2',
+            status: 'published',
+            createdAt: '2025-12-04',
+            updatedAt: '2025-12-08',
+            source: '薪酬合规',
+            tags: ['个税', '社保', '申报']
+        },
+        'doc-performance': {
+            id: 'doc-performance',
+            title: '绩效周期方案 2025H1',
+            desc: '目标对齐时间表、评估与校准会操作步骤',
+            summary: '明确2025上半年绩效节奏、校准会流程与对齐时间节点。',
+            content: `# 绩效周期方案 2025H1\n\n## 关键节点\n1. 目标对齐\n2. 中期回顾\n3. 期末评估\n\n## 校准会\n- 评分对齐\n- 结果复核`,
+            categoryId: 'performance-management',
+            owner: '绩效与发展组',
+            version: 'V1.0',
+            status: 'published',
+            createdAt: '2025-12-06',
+            updatedAt: '2025-12-06',
+            source: '绩效管理',
+            tags: ['绩效', '周期', '方案']
+        },
+        'doc-offboarding': {
+            id: 'doc-offboarding',
+            title: '离职办理作业标准',
+            desc: '主动/被动离职审批、补偿口径与留痕清单',
+            summary: '统一离职办理流程，明确审批、补偿与留痕材料要求。',
+            content: `# 离职办理作业标准\n\n## 审批链\n- 直属主管\n- HRBP\n- 人事共享服务\n\n## 归档材料\n- 离职申请\n- 补偿确认`,
+            categoryId: 'offboarding-process',
+            owner: '员工关系组',
+            version: 'V1.3',
+            status: 'published',
+            createdAt: '2025-12-01',
+            updatedAt: '2025-12-09',
+            source: '员工关系',
+            tags: ['离职', '审批', '流程']
+        },
+        'doc-taxonomy': {
+            id: 'doc-taxonomy',
+            title: '知识分类模型 V1.0',
+            desc: '节点命名规范、版本演进与变更审批流',
+            summary: '定义知识分类模型结构与命名规范，保障分类可扩展与可治理。',
+            content: `# 知识分类模型 V1.0\n\n## 命名规范\n- 主题域 / 流程 / 资源类型\n\n## 变更流程\n1. 需求提交\n2. 评审与审批\n3. 发布与宣导`,
+            categoryId: 'knowledge-governance',
+            owner: '知识运营团队',
+            version: 'V1.0',
+            status: 'published',
+            createdAt: '2025-12-05',
+            updatedAt: '2025-12-05',
+            source: '知识架构',
+            tags: ['分类', '规范', '模型']
+        },
+        'doc-compliance': {
+            id: 'doc-compliance',
+            title: '劳动合规检查清单',
+            desc: '区域差异、标准合同要素与审计证据点',
+            summary: '梳理劳动合规检查要点，覆盖合同条款、区域差异与审计证据。',
+            content: `# 劳动合规检查清单\n\n## 合同要素\n- 合同期限\n- 薪酬与福利\n\n## 审计证据\n> 合同原件需保存不少于 2 年。`,
+            categoryId: 'policy-compliance',
+            owner: '合规与法务',
+            version: 'V1.1',
+            status: 'archived',
+            createdAt: '2025-12-02',
+            updatedAt: '2025-12-11',
+            source: '合规管理',
+            tags: ['合规', '检查', '清单']
+        }
+    };
+
+    const documentsByCategory = {
+        'talent-onboarding': ['doc-onboarding', 'doc-probation'],
+        'operation-attendance': ['doc-leave', 'doc-attendance'],
+        'reward-payroll': ['doc-payroll', 'doc-tax'],
+        'performance-management': ['doc-performance'],
+        'offboarding-process': ['doc-offboarding'],
+        'knowledge-governance': ['doc-knowledge', 'doc-taxonomy'],
+        'policy-compliance': ['doc-compliance']
+    };
+
+    documentsByCategory.all = Object.keys(documentStore);
+
+    function getDocumentStatusMeta(status) {
+        const statusMap = {
+            published: { label: '已发布', bg: 'bg-green-100', text: 'text-green-800' },
+            draft: { label: '草稿', bg: 'bg-yellow-100', text: 'text-yellow-800' },
+            archived: { label: '已归档', bg: 'bg-gray-100', text: 'text-gray-700' }
+        };
+        return statusMap[status] || { label: '未知', bg: 'bg-gray-100', text: 'text-gray-700' };
+    }
+
+    function getDocumentById(docId) {
+        return documentStore[docId] || null;
+    }
+
+    function escapeHtml(text) {
+        return text.replace(/[&<>"']/g, char => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[char]));
+    }
+
+    function renderMarkdownToHtml(markdown) {
+        if (!markdown) return '';
+        const escaped = escapeHtml(markdown);
+        const lines = escaped.split(/\r?\n/);
+        const html = [];
+        let inList = false;
+        let inBlockquote = false;
+        let orderedList = false;
+
+        const closeList = () => {
+            if (inList) {
+                html.push(orderedList ? '</ol>' : '</ul>');
+                inList = false;
+                orderedList = false;
+            }
+        };
+
+        const closeQuote = () => {
+            if (inBlockquote) {
+                html.push('</blockquote>');
+                inBlockquote = false;
+            }
+        };
+
+        lines.forEach(rawLine => {
+            const line = rawLine.trim();
+
+            if (!line) {
+                closeList();
+                closeQuote();
+                html.push('<br>');
+                return;
+            }
+
+            const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
+            if (headingMatch) {
+                closeList();
+                closeQuote();
+                const level = headingMatch[1].length;
+                html.push(`<h${level} class="text-base font-semibold mt-3 mb-2">${headingMatch[2]}</h${level}>`);
+                return;
+            }
+
+            if (line.startsWith('>')) {
+                closeList();
+                if (!inBlockquote) {
+                    html.push('<blockquote class="border-l-4 border-teal-200 pl-3 text-text-secondary">');
+                    inBlockquote = true;
+                }
+                html.push(`<p>${line.replace(/^>\s?/, '')}</p>`);
+                return;
+            }
+
+            const orderedMatch = line.match(/^(\d+)\.\s+(.*)$/);
+            if (orderedMatch) {
+                closeQuote();
+                if (!inList || !orderedList) {
+                    closeList();
+                    html.push('<ol class="list-decimal pl-5 space-y-1">');
+                    inList = true;
+                    orderedList = true;
+                }
+                html.push(`<li>${orderedMatch[2]}</li>`);
+                return;
+            }
+
+            const unorderedMatch = line.match(/^[-*]\s+(.*)$/);
+            if (unorderedMatch) {
+                closeQuote();
+                if (!inList || orderedList) {
+                    closeList();
+                    html.push('<ul class="list-disc pl-5 space-y-1">');
+                    inList = true;
+                    orderedList = false;
+                }
+                html.push(`<li>${unorderedMatch[1]}</li>`);
+                return;
+            }
+
+            closeList();
+            closeQuote();
+            html.push(`<p>${line}</p>`);
+        });
+
+        closeList();
+        closeQuote();
+        return html.join('\n');
+    }
 
     // 知识体系增删改查功能
     window.addCategory = function() {
@@ -2808,17 +3373,79 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.viewDocument = function(docId) {
-        alert('查看文档功能待实现\nDocument ID: ' + docId);
-    };
-
-    window.editDocument = function(docId) {
-        alert('编辑文档功能待实现\nDocument ID: ' + docId);
+        const doc = getDocumentById(docId);
+        if (!doc) {
+            alert('未找到文档详情');
+            return;
+        }
+        openDocumentDetailModal(doc);
     };
 
     window.deleteDocument = function(docId, title) {
         if (!confirm(`确定要删除文档"${title}"吗？\n此操作不可恢复。`)) return;
         alert('文档删除功能待实现');
     };
+
+    function openDocumentDetailModal(doc) {
+        const modal = document.getElementById('document-detail-modal');
+        if (!modal) return;
+
+        const statusMeta = getDocumentStatusMeta(doc.status);
+        const categoryPath = getNodePathNames(doc.categoryId || 'all').join(' / ');
+
+        const titleEl = document.getElementById('document-detail-title');
+        const statusEl = document.getElementById('document-detail-status');
+        const descEl = document.getElementById('document-detail-desc');
+        const summaryEl = document.getElementById('document-detail-summary');
+        const categoryEl = document.getElementById('document-detail-category');
+        const ownerEl = document.getElementById('document-detail-owner');
+        const versionEl = document.getElementById('document-detail-version');
+        const updatedEl = document.getElementById('document-detail-updated');
+        const createdEl = document.getElementById('document-detail-created');
+        const sourceEl = document.getElementById('document-detail-source');
+        const tagsEl = document.getElementById('document-detail-tags');
+        const idEl = document.getElementById('document-detail-id');
+        const previewEl = document.getElementById('document-detail-preview');
+
+        if (titleEl) titleEl.textContent = doc.title;
+        if (statusEl) {
+            statusEl.className = `px-2 py-1 ${statusMeta.bg} ${statusMeta.text} text-xs rounded-full`;
+            statusEl.textContent = statusMeta.label;
+        }
+        if (descEl) descEl.textContent = doc.desc;
+        if (summaryEl) summaryEl.textContent = doc.summary;
+        if (categoryEl) categoryEl.textContent = categoryPath;
+        if (ownerEl) ownerEl.textContent = doc.owner;
+        if (versionEl) versionEl.textContent = doc.version;
+        if (updatedEl) updatedEl.textContent = doc.updatedAt;
+        if (createdEl) createdEl.textContent = doc.createdAt;
+        if (sourceEl) sourceEl.textContent = doc.source;
+        if (idEl) idEl.textContent = doc.id;
+
+        if (tagsEl) {
+            tagsEl.innerHTML = doc.tags.map(tag => `
+                <span class="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">${tag}</span>
+            `).join('');
+        }
+        if (previewEl) {
+            previewEl.innerHTML = renderMarkdownToHtml(doc.content || '');
+        }
+
+        modal.classList.remove('hidden');
+    }
+
+    function closeDocumentDetailModal() {
+        const modal = document.getElementById('document-detail-modal');
+        if (!modal) return;
+        modal.classList.add('hidden');
+    }
+
+    document.getElementById('close-document-detail-modal')?.addEventListener('click', closeDocumentDetailModal);
+    document.getElementById('document-detail-modal')?.addEventListener('click', (e) => {
+        if (e.target?.id === 'document-detail-modal') {
+            closeDocumentDetailModal();
+        }
+    });
 
     // 添加文档按钮事件
     const addDocumentBtn = document.getElementById('add-document-btn');
@@ -2864,67 +3491,38 @@ document.addEventListener('DOMContentLoaded', () => {
         const documentsList = document.getElementById('documents-list');
         const faqList = document.getElementById('faq-list');
 
-        // 模拟文档数据
-        const mockDocuments = {
-            'all': [
-                { id: 'doc-policy', title: 'HR政策手册 V1.0', desc: '战略与制度分类模型、角色职责与发布口径', date: '2025-12-01', status: 'active' },
-                { id: 'doc-onboarding', title: '入职准备清单（标准版）', desc: '入职前材料、设备/账号开通与首日迎新指引', date: '2025-11-15', status: 'active' },
-                { id: 'doc-payroll', title: '月度薪资核算SOP', desc: '薪资校验点、发薪SLA、个税与社保申报检查', date: '2025-11-30', status: 'active' },
-                { id: 'doc-knowledge', title: '知识运营治理指引', desc: '分类治理、责任人矩阵与版本变更流程', date: '2025-12-05', status: 'active' },
-            ],
-            'talent-onboarding': [
-                { id: 'doc-onboarding', title: '入职准备清单（标准版）', desc: '入职材料、设备与账号开通、报到节奏', date: '2025-11-15', status: 'active' },
-                { id: 'doc-probation', title: '试用期目标与转正模板', desc: '试用期OKR模板、辅导节奏与预警提示', date: '2025-12-02', status: 'active' },
-            ],
-            'operation-attendance': [
-                { id: 'doc-leave', title: '假期与加班调休政策', desc: '假期口径、额度、审批链与加班调休规则', date: '2025-12-03', status: 'active' },
-                { id: 'doc-attendance', title: '考勤异常处理SOP', desc: '漏打卡、异常工时的举证材料与纠错流程', date: '2025-11-25', status: 'active' },
-            ],
-            'reward-payroll': [
-                { id: 'doc-payroll', title: '月度薪资核算SOP', desc: '核算输入、三道校验、发薪与复核', date: '2025-11-30', status: 'active' },
-                { id: 'doc-tax', title: '个税与社保申报操作手册', desc: '申报周期、基数口径与异常处理节点', date: '2025-12-04', status: 'active' },
-            ],
-            'performance-management': [
-                { id: 'doc-performance', title: '绩效周期方案 2025H1', desc: '目标对齐时间表、评估与校准会操作步骤', date: '2025-12-06', status: 'active' },
-            ],
-            'offboarding-process': [
-                { id: 'doc-offboarding', title: '离职办理作业标准', desc: '主动/被动离职审批、补偿口径与留痕清单', date: '2025-12-01', status: 'active' },
-            ],
-            'knowledge-governance': [
-                { id: 'doc-taxonomy', title: '知识分类模型 V1.0', desc: '节点命名规范、版本演进与变更审批流', date: '2025-12-05', status: 'active' },
-            ],
-            'policy-compliance': [
-                { id: 'doc-compliance', title: '劳动合规检查清单', desc: '区域差异、标准合同要素与审计证据点', date: '2025-12-02', status: 'active' },
-            ]
-        };
-
-        const docs = mockDocuments[nodeId] || [];
+        const docIds = documentsByCategory[nodeId] || [];
+        const docs = docIds.map(docId => getDocumentById(docId)).filter(Boolean);
 
         if (docs.length > 0) {
-            documentsList.innerHTML = docs.map(doc => `
-                <div class="bg-white rounded-lg shadow-card p-4 card-hover">
-                    <div class="flex items-start justify-between mb-2">
-                        <div class="flex items-center">
-                            <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center mr-3">
-                                <i class="fa fa-file-text text-blue-600"></i>
+            documentsList.innerHTML = docs.map(doc => {
+                const statusMeta = getDocumentStatusMeta(doc.status);
+                return `
+                    <div class="bg-white rounded-lg shadow-card p-4 card-hover">
+                        <div class="flex items-start justify-between mb-2">
+                            <div class="flex items-center">
+                                <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center mr-3">
+                                    <i class="fa fa-file-text text-blue-600"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-semibold text-text-primary">${doc.title}</h4>
+                                    <p class="text-xs text-text-secondary mt-1">${doc.desc}</p>
+                                </div>
                             </div>
-                            <div>
-                                <h4 class="font-semibold text-text-primary">${doc.title}</h4>
-                                <p class="text-xs text-text-secondary mt-1">${doc.desc}</p>
+                            <span class="px-2 py-1 ${statusMeta.bg} ${statusMeta.text} text-xs rounded-full">
+                                ${statusMeta.label}
+                            </span>
+                        </div>
+                        <div class="flex items-center justify-between text-xs text-text-secondary mt-3 pt-3 border-t">
+                            <span><i class="fa fa-clock-o mr-1"></i>${doc.createdAt}</span>
+                            <div class="space-x-2">
+                                <button class="text-primary hover:text-secondary" onclick="window.viewDocument && viewDocument('${doc.id}')"><i class="fa fa-eye"></i> 查看</button>
+                                <button class="text-red-500 hover:text-red-700" onclick="window.deleteDocument && deleteDocument('${doc.id}', '${doc.title}')"><i class="fa fa-trash"></i> 删除</button>
                             </div>
                         </div>
-                        <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">活跃</span>
                     </div>
-                    <div class="flex items-center justify-between text-xs text-text-secondary mt-3 pt-3 border-t">
-                        <span><i class="fa fa-clock-o mr-1"></i>${doc.date}</span>
-                        <div class="space-x-2">
-                            <button class="text-primary hover:text-secondary" onclick="window.viewDocument && viewDocument('${doc.id}')"><i class="fa fa-eye"></i> 查看</button>
-                            <button class="text-blue-500 hover:text-blue-700" onclick="window.editDocument && editDocument('${doc.id}')"><i class="fa fa-edit"></i> 编辑</button>
-                            <button class="text-red-500 hover:text-red-700" onclick="window.deleteDocument && deleteDocument('${doc.id}', '${doc.title}')"><i class="fa fa-trash"></i> 删除</button>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         } else {
             documentsList.innerHTML = `
                 <div class="text-center text-text-secondary py-8">
